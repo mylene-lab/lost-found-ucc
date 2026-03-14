@@ -1,38 +1,49 @@
-FROM php:8.2-apache
+FROM ubuntu:22.04
 
-# Install PHP extensions
-RUN docker-php-ext-install mysqli pdo pdo_mysql
+ENV DEBIAN_FRONTEND=noninteractive
 
-# Disable ALL mpm modules and enable only prefork (fixes "More than one MPM" error)
-RUN apt-get update && apt-get install -y apache2 \
-    && a2dismod mpm_event mpm_worker mpm_prefork 2>/dev/null || true \
-    && a2enmod mpm_prefork \
-    && a2enmod rewrite headers \
-    && apt-get clean
+# Install Apache, PHP, and MySQL client
+RUN apt-get update && apt-get install -y \
+    apache2 \
+    php8.1 \
+    php8.1-mysqli \
+    php8.1-pdo \
+    php8.1-mysql \
+    libapache2-mod-php8.1 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Enable Apache modules
+RUN a2enmod rewrite headers php8.1
 
 # Set working directory
 WORKDIR /var/www/html
 
+# Remove default Apache page
+RUN rm -f /var/www/html/index.html
+
 # Copy all project files
 COPY . /var/www/html/
 
-# Allow .htaccess overrides
+# Configure Apache virtual host
 RUN { \
-    echo '<Directory /var/www/html>'; \
-    echo '    Options Indexes FollowSymLinks'; \
-    echo '    AllowOverride All'; \
-    echo '    Require all granted'; \
-    echo '</Directory>'; \
-} > /etc/apache2/conf-available/allow-override.conf \
-    && a2enconf allow-override
+    echo '<VirtualHost *:80>'; \
+    echo '    DocumentRoot /var/www/html'; \
+    echo '    <Directory /var/www/html>'; \
+    echo '        Options Indexes FollowSymLinks'; \
+    echo '        AllowOverride All'; \
+    echo '        Require all granted'; \
+    echo '    </Directory>'; \
+    echo '</VirtualHost>'; \
+} > /etc/apache2/sites-available/000-default.conf
 
 # Make uploads folder writable
 RUN mkdir -p /var/www/html/public/uploads/items \
     && chmod -R 775 /var/www/html/public/uploads \
-    && chown -R www-data:www-data /var/www/html/public/uploads
+    && chown -R www-data:www-data /var/www/html
 
 # Startup script
-RUN printf '#!/bin/bash\nphp /var/www/html/setup.php\napache2-foreground\n' > /start.sh \
+RUN printf '#!/bin/bash\nphp /var/www/html/setup.php\napache2ctl -D FOREGROUND\n' > /start.sh \
     && chmod +x /start.sh
 
 EXPOSE 80
